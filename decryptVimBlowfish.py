@@ -4,23 +4,22 @@
 import hashlib
 from Crypto.Cipher import Blowfish
 import struct
+import sys
 
 
 filename = 'file'
 password = 'test'
 
 
-fd = open(filename, 'rb')
-myBuffer = fd.read()
-fd.close()
+with open(filename, 'rb') as fd:
+        myBuffer = fd.read(28)
+        assert myBuffer[:12] == 'VimCrypt~02!', 'This is not a Vim-blowfish-encrypted file.'
+        salt = myBuffer[12:20]
+        iv = myBuffer[20:28]
+        contents = fd.read()
 
-header = myBuffer[:12] # should be "VimCrypt~02!"
-assert header == 'VimCrypt~02!', 'This is not a Vim-blowfish-encrypted file.'
 
-salt = myBuffer[12:20]
-iv = myBuffer[20:28]
-contents = myBuffer[28:]
-
+def printerr(s): sys.stderr.write(s)
 
 def getKey(password, salt):
     # Process the key 1000 times.  (called "Key stretching")
@@ -28,11 +27,11 @@ def getKey(password, salt):
 
     for i in xrange(1000):
         if i < 5:
-            print " key:", key
+            printerr(" key:%s\n"%key)
         key = hashlib.sha256(key + salt).hexdigest()
 
-    print " key:", key
-    return key;
+    printerr(" ...\n key:%s\n\n"%key)
+    return key
 
 
 def flipEndian(inData):
@@ -53,16 +52,13 @@ binKey = key.decode('hex')
 bf = Blowfish.new(binKey)
 
 # Initialize the keystream:
-iv_be = flipEndian(iv)
-keystream_be = bf.encrypt( iv_be*8 )
-keystream = flipEndian(keystream_be)
+cipherblock = 8*iv
+origin = 0
+plaintextlist = []
+while len(contents) > origin:
+        keystream = flipEndian( bf.encrypt( flipEndian( cipherblock)))
+        cipherblock = contents[origin:origin + len(cipherblock)]
+        origin += len(cipherblock)
+        plaintextlist.extend(chr(ord(c) ^ ord(k)) for c,k in zip(cipherblock, keystream))
 
-## TODO: FIXME:  This only works for the first block:
-cLen = min(len(contents), len(keystream))
-results = []
-for i in xrange(cLen):
-    results.append( ord(contents[i]) ^ ord(keystream[i]))
-
-print ''.join(map(lambda x: chr(x), results))
-
-
+sys.stdout.write(''.join(plaintextlist))
